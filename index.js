@@ -1,8 +1,13 @@
+require('dotenv').config(); // Add this as the first lin
 const express = require('express');
 const axios = require('axios');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const app = express();
+app.use(express.json()); // Needed to parse JSON body
+
 const cors = require('cors');
 
-const app = express();
+
 app.use(cors());
 
 app.get('/', (req, res) => {
@@ -76,6 +81,26 @@ app.get('/api/vehicle', async (req, res) => {
     res.status(500).json({ error: 'Vehicle lookup failed' });
   }
 });
+
+app.post('/api/create-payment-intent', async (req, res) => {
+    const { amount } = req.body;
+  
+    try {
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(amount * 100), // Convert GBP to pence
+        currency: 'gbp',
+        automatic_payment_methods: { enabled: true }
+      });
+  
+      res.send({
+        clientSecret: paymentIntent.client_secret
+      });
+    } catch (err) {
+      console.error(err.message);
+      res.status(500).json({ error: 'Payment intent creation failed' });
+    }
+  });
+  
 
 const port = 5001;
 app.listen(port, () => console.log(`✅ Backend running at http://localhost:${port}`));
