@@ -87,6 +87,21 @@ app.get('/api/vehicle', async (req, res) => {
   }
 });
 
+app.get('/api/test-external', async (req, res) => {
+  try {
+    const test = await axios.get('https://uk.api.vehicledataglobal.com/r2/lookup', {
+      params: {
+        ApiKey: '308bbf41-9c4e-49b6-b519-ef273ad2f56d',
+        PackageName: 'dimensions',
+        Vrm: 'B11TAN'
+      }
+    });
+    res.json(test.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message || "External API failed" });
+  }
+});
+
 
 
 // ✅ Stripe Payment Intent
