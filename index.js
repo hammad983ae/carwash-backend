@@ -31,14 +31,15 @@ app.get('/api/vehicle', async (req, res) => {
   try {
     const result = await axios.get('https://uk.api.vehicledataglobal.com/r2/lookup', {
       params: {
-        ApiKey: '308bbf41-9c4e-49b6-b519-ef273ad2f56d',
+        ApiKey: process.env.UKVD_API_KEY,
         PackageName: 'dimensions',
         Vrm: vrm,
       },
     });
 
     const dims = result.data?.Results?.ModelDetails?.Dimensions;
-    const bodyType = result.data?.Results?.VehicleDetails?.BodyType;
+    const modelClassification = result.data?.Results?.ModelDetails?.ModelClassification || {};
+    const taxationClass = modelClassification.TaxationClass || 'Unknown';
     const make = result.data?.Results?.ModelDetails?.ModelIdentification?.Make || 'Unknown';
     const model = result.data?.Results?.ModelDetails?.ModelIdentification?.Model || 'Unknown';
 
@@ -47,17 +48,17 @@ app.get('/api/vehicle', async (req, res) => {
     }
 
     const { LengthMm, WidthMm, HeightMm } = dims;
-    const isVan = bodyType?.toLowerCase().includes('van');
 
-    if (isVan) {
+    if (taxationClass === 'LCV') {
       const lengthCm = LengthMm / 10;
-      const category = lengthCm <= 480 ? 'Van 1' : 'Van 2/3';
+      const category = lengthCm <= 480 ? 'Van volume 1' : 'Van volume 2/3';
 
       return res.json({
         vrm,
         type: 'van',
         make,
         model,
+        vehicleClass: 'LCV',
         lengthCm: parseFloat(lengthCm.toFixed(1)),
         category,
       });
@@ -75,15 +76,18 @@ app.get('/api/vehicle', async (req, res) => {
         type: 'car',
         make,
         model,
+        vehicleClass: taxationClass,
         volumeM3: parseFloat(volumeM3.toFixed(2)),
         category,
       });
     }
   } catch (error) {
-    console.error(error.message);
+    console.error('Vehicle lookup failed:', error.message || error);
     res.status(500).json({ error: 'Vehicle lookup failed' });
   }
 });
+
+
 
 // ✅ Stripe Payment Intent
 app.post('/api/create-payment-intent', async (req, res) => {
@@ -141,6 +145,39 @@ app.post('/api/send-confirmation', async (req, res) => {
     res.status(500).json({ error: 'Failed to send confirmation email' });
   }
 });
+
+// ✅ Refund API
+app.post('/api/refund', async (req, res) => {
+  const { paymentIntentId, bookingCreatedAt } = req.body;
+
+  if (!paymentIntentId || !bookingCreatedAt) {
+    return res.status(400).json({ error: 'Missing paymentIntentId or bookingCreatedAt' });
+  }
+
+  try {
+    const bookingTime = new Date(bookingCreatedAt);
+    const now = new Date();
+    const hoursSinceBooking = (now - bookingTime) / (1000 * 60 * 60);
+
+    if (hoursSinceBooking > 24) {
+      return res.status(403).json({ error: 'Refund only allowed within 24 hours of booking' });
+    }
+
+    const refund = await stripe.refunds.create({
+      payment_intent: paymentIntentId
+    });
+
+    return res.status(200).json({
+      message: 'Refund processed',
+      refundId: refund.id,
+      status: refund.status
+    });
+  } catch (err) {
+    console.error('❌ Refund error:', err.message || err);
+    res.status(500).json({ error: 'Refund failed' });
+  }
+});
+
 
 // ------------------ START SERVER ------------------
 
