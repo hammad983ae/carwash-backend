@@ -10,7 +10,19 @@ const mailerSend = new MailerSend({ apiKey: process.env.MAILERSEND_API_KEY });
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+
+const cors = require("cors");
+
+const allowedOrigins = [
+  "http://localhost:3000",                            // local dev
+  "https://wavespoole.com/",              // replace with your actual frontend URL
+];
+
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
+
 
 // ------------------ ROUTES ------------------
 
