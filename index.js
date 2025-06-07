@@ -11,7 +11,6 @@ const mailerSend = new MailerSend({ apiKey: process.env.MAILERSEND_API_KEY });
 const app = express();
 app.use(express.json());
 
-const cors = require("cors");
 
 const allowedOrigins = [
   "http://localhost:3000",                            // local dev
