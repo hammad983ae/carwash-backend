@@ -138,7 +138,7 @@ app.post('/api/send-confirmation', async (req, res) => {
   try {
     const emailParams = new EmailParams({
       from: {
-        email: 'no-reply@test-y7zpl98nxeo45vx6.mlsender.net', // Replace with your MailerSend verified sender
+        email: 'no-reply@wavespoole.com', // Replace with your MailerSend verified sender
         name: 'Your Car Wash'
       },
       to: [
