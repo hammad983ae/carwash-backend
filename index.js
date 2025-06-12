@@ -150,24 +150,133 @@ app.post('/api/send-confirmation', async (req, res) => {
   try {
     const emailParams = new EmailParams({
       from: {
-        email: 'no-reply@test-y7zpl98nxeo45vx6.mlsender.net', // Replace with your MailerSend verified sender
+        email: 'no-reply@wavespoole.com/', // Replace with your MailerSend verified sender
         name: 'Your Car Wash'
       },
       to: [
         new Recipient(booking.customerEmail, booking.customerName)
       ],
-      subject: '✅ Your Car Wash Booking is Confirmed',
+      subject: 'Booking Confirmation – Waves Hand Car Wash Poole',
       html: `
-        <h2>Hi ${booking.customerName},</h2>
-        <p>Your booking is confirmed for <strong>${booking.date}</strong> at <strong>${booking.time}</strong>.</p>
-        <p>Service: ${booking.service} - £${booking.price}</p>
-        <p>Total: £${booking.totalPrice || booking.price}</p>
-        <p>Thank you for choosing us!</p>
-      `,
-      text: `Hi ${booking.customerName}, your car wash is booked for ${booking.date} at ${booking.time}.`
+      <h2>Hi ${booking.customerName},</h2>
+      <p>Thanks for booking with us!</p>
+      <p>Here are the details of your appointment:</p>
+  
+      <p>📍 <strong>Location:</strong><br>
+      Waves Hand Car Wash – Tesco Extra Car Park<br>
+      Tower Park, Poole, BH12 4NX</p>
+  
+      <p>🚗 <strong>Vehicle:</strong> ${booking.vehicleMake} ${booking.vehicleModel}</p>
+      <p>🧼 <strong>Package Booked:</strong> ${booking.packageName}</p>
+      <p>➕ <strong>Extras:</strong> ${booking.extras?.length ? booking.extras.join(', ') : 'None'}</p>
+      <p>📅 <strong>Date & Time:</strong> ${booking.date} at ${booking.time}</p>
+      <p>⏳ <strong>Estimated Duration:</strong> ${booking.estimatedTime}</p>
+  
+      <p>If you need to cancel or make changes to your booking, please call us directly on <strong>07500 182276</strong>.</p>
+  
+      <p>We’re looking forward to giving your car the care it deserves – see you soon!</p>
+  
+      <p>Warm regards,<br>
+      The Waves Poole Team</p>
+    `,
+    text: `Hi ${booking.customerName},
+  
+  Thanks for booking with us!
+  
+  Here are the details of your appointment:
+  
+  📍 Location:
+  Waves Hand Car Wash – Tesco Extra Car Park
+  Tower Park, Poole, BH12 4NX
+  
+  🚗 Vehicle: ${booking.vehicleMake} ${booking.vehicleModel}
+  🧼 Package Booked: ${booking.packageName}
+  ➕ Extras: ${booking.extras?.length ? booking.extras.join(', ') : 'None'}
+  📅 Date & Time: ${booking.date} at ${booking.time}
+  ⏳ Estimated Duration: ${booking.estimatedTime}
+  
+  If you need to cancel or make changes to your booking, please call us directly on 07500 182276.
+  
+  We’re looking forward to giving your car the care it deserves – see you soon!
+  
+  Warm regards,  
+  The Waves Poole Team`
     });
 
     await mailerSend.email.send(emailParams);
+
+    // After await mailerSend.email.send(emailParams);
+const bookingTime = new Date(`${booking.date}T${booking.time}`);
+const reminderTime = new Date(bookingTime.getTime() - 24 * 60 * 60 * 1000); // 24 hours before
+const timeUntilReminder = reminderTime - Date.now();
+
+if (timeUntilReminder > 0) {
+  setTimeout(async () => {
+    try {
+      const reminderParams = new EmailParams({
+        from: {
+          email: 'no-reply@wavespoole.com',
+          name: 'Your Car Wash'
+        },
+        to: [new Recipient(booking.customerEmail, booking.customerName)],
+        subject: '⏰ Reminder: Your Car Wash Appointment is Tomorrow 🚘',
+        html: `
+        <h2>Hi ${booking.customerName},</h2>
+        <p>Just a quick reminder that you’ve got a car wash booking with us tomorrow.</p>
+    
+        <p>Here are your appointment details:</p>
+    
+        <p>📍 <strong>Location:</strong><br>
+        Waves Hand Car Wash – Tesco Extra Car Park<br>
+        Tower Park, Poole, BH12 4NX</p>
+    
+        <p>🚗 <strong>Vehicle:</strong> ${booking.vehicleMake} ${booking.vehicleModel}</p>
+        <p>🧼 <strong>Package:</strong> ${booking.packageName}</p>
+        <p>➕ <strong>Extras:</strong> ${booking.extras?.length ? booking.extras.join(', ') : 'None'}</p>
+        <p>📅 <strong>Date & Time:</strong> ${booking.date} at ${booking.time}</p>
+        <p>⏳ <strong>Estimated Duration:</strong> ${booking.estimatedTime}</p>
+    
+        <p>If you need to cancel or reschedule, please give us a call on <strong>07500 182276</strong>.</p>
+    
+        <p>We’ll see you then – your car’s in good hands.</p>
+    
+        <p>Best,<br>
+        The Waves Poole Team</p>
+      `,
+      text: `Hi ${booking.customerName},
+    
+    Just a quick reminder that you’ve got a car wash booking with us tomorrow.
+    
+    Here are your appointment details:
+    
+    📍 Location:
+    Waves Hand Car Wash – Tesco Extra Car Park
+    Tower Park, Poole, BH12 4NX
+    
+    🚗 Vehicle: ${booking.vehicleMake} ${booking.vehicleModel}
+    🧼 Package: ${booking.packageName}
+    ➕ Extras: ${booking.extras?.length ? booking.extras.join(', ') : 'None'}
+    📅 Date & Time: ${booking.date} at ${booking.time}
+    ⏳ Estimated Duration: ${booking.estimatedTime}
+    
+    If you need to cancel or reschedule, please give us a call on 07500 182276.
+    
+    We’ll see you then – your car’s in good hands.
+    
+    Best,  
+    The Waves Poole Team`
+      });
+
+      await mailerSend.email.send(reminderParams);
+      console.log(`✅ Reminder sent to ${booking.customerEmail}`);
+    } catch (err) {
+      console.error('❌ Reminder email failed:', err?.response?.body || err.message || err);
+    }
+  }, timeUntilReminder);
+} else {
+  console.warn(`⚠️ Booking is too soon or already passed. Skipping reminder.`);
+}
+
 
     // ✅ Fire Meta Conversion API event
     await sendMetaConversionEvent({
