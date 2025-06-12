@@ -3,8 +3,7 @@ const express = require('express');
 const axios = require('axios');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const cors = require('cors');
-
-// ✅ MailerSend
+const crypto = require('crypto'); // ✅ For hashing email (Meta CAPI)
 const { MailerSend, EmailParams, Recipient } = require('mailersend');
 const mailerSend = new MailerSend({ apiKey: process.env.MAILERSEND_API_KEY });
 
@@ -12,8 +11,41 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// ------------------ Meta Conversions API ------------------
+const META_PIXEL_ID = process.env.META_PIXEL_ID;
+const META_CAPI_TOKEN = process.env.META_CAPI_TOKEN;
 
+function hashEmail(email) {
+  return crypto.createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+}
 
+async function sendMetaConversionEvent({ eventName, email }) {
+  if (!META_PIXEL_ID || !META_CAPI_TOKEN) {
+    console.warn('⚠️ Meta Pixel ID or Token missing. Skipping CAPI.');
+    return;
+  }
+
+  try {
+    const res = await axios.post(
+      `https://graph.facebook.com/v17.0/${META_PIXEL_ID}/events?access_token=${META_CAPI_TOKEN}`,
+      {
+        data: [
+          {
+            event_name: eventName,
+            event_time: Math.floor(Date.now() / 1000),
+            action_source: "website",
+            user_data: {
+              em: [hashEmail(email)]
+            }
+          }
+        ]
+      }
+    );
+    console.log("✅ Meta CAPI event sent:", res.data);
+  } catch (err) {
+    console.error("❌ Meta CAPI error:", err.response?.data || err.message);
+  }
+}
 
 // ------------------ ROUTES ------------------
 
@@ -26,7 +58,6 @@ app.get('/', (req, res) => {
   });
 });
 
-// ✅ Vehicle Lookup
 app.get('/api/vehicle', async (req, res) => {
   const { vrm } = req.query;
   if (!vrm) return res.status(400).json({ error: 'VRM is required' });
@@ -90,24 +121,6 @@ app.get('/api/vehicle', async (req, res) => {
   }
 });
 
-app.get('/api/test-external', async (req, res) => {
-  try {
-    const test = await axios.get('https://uk.api.vehicledataglobal.com/r2/lookup', {
-      params: {
-        ApiKey: '308bbf41-9c4e-49b6-b519-ef273ad2f56d',
-        PackageName: 'dimensions',
-        Vrm: 'B11TAN'
-      }
-    });
-    res.json(test.data);
-  } catch (error) {
-    res.status(500).json({ error: error.message || "External API failed" });
-  }
-});
-
-
-
-// ✅ Stripe Payment Intent
 app.post('/api/create-payment-intent', async (req, res) => {
   const { amount } = req.body;
 
@@ -127,7 +140,6 @@ app.post('/api/create-payment-intent', async (req, res) => {
   }
 });
 
-// ✅ MailerSend Booking Confirmation
 app.post('/api/send-confirmation', async (req, res) => {
   const booking = req.body;
 
@@ -138,7 +150,7 @@ app.post('/api/send-confirmation', async (req, res) => {
   try {
     const emailParams = new EmailParams({
       from: {
-        email: 'no-reply@wavespoole.com', // Replace with your MailerSend verified sender
+        email: 'no-reply@test-y7zpl98nxeo45vx6.mlsender.net', // Replace with your MailerSend verified sender
         name: 'Your Car Wash'
       },
       to: [
@@ -157,6 +169,12 @@ app.post('/api/send-confirmation', async (req, res) => {
 
     await mailerSend.email.send(emailParams);
 
+    // ✅ Fire Meta Conversion API event
+    await sendMetaConversionEvent({
+      eventName: 'Purchase',
+      email: booking.customerEmail
+    });
+
     res.status(200).json({ success: true });
   } catch (err) {
     console.error('❌ MailerSend error:', err?.response?.body || err.message || err);
@@ -164,7 +182,6 @@ app.post('/api/send-confirmation', async (req, res) => {
   }
 });
 
-// ✅ Refund API
 app.post('/api/refund', async (req, res) => {
   const { paymentIntentId, bookingCreatedAt } = req.body;
 
@@ -195,7 +212,6 @@ app.post('/api/refund', async (req, res) => {
     res.status(500).json({ error: 'Refund failed' });
   }
 });
-
 
 // ------------------ START SERVER ------------------
 
