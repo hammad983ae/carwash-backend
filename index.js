@@ -1,9 +1,9 @@
-require('dotenv').config();
+require('dotenv').config(); // ✅ Load environment variables
 const express = require('express');
 const axios = require('axios');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const cors = require('cors');
-const crypto = require('crypto');
+const crypto = require('crypto'); // ✅ For hashing email (Meta CAPI)
 const { MailerSend, EmailParams, Recipient } = require('mailersend');
 const mailerSend = new MailerSend({ apiKey: process.env.MAILERSEND_API_KEY });
 const Queue = require('bull');
@@ -12,26 +12,16 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-console.log('Initializing Bull queue with Redis:', {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: process.env.REDIS_PORT || 6379,
-  password: process.env.REDIS_PASSWORD ? 'Set' : 'Not set',
+// ------------------ Bull Queue Setup ------------------
+const reminderQueue = new Queue('reminder-emails', {
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: process.env.REDIS_PORT || 6379,
+    password: process.env.REDIS_PASSWORD || undefined,
+  },
 });
 
-let reminderQueue;
-try {
-  reminderQueue = new Queue('reminder-emails', {
-    redis: {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: process.env.REDIS_PORT || 6379,
-      password: process.env.REDIS_PASSWORD || undefined,
-    },
-  });
-  console.log('✅ Bull queue initialized successfully');
-} catch (err) {
-  console.error('❌ Failed to initialize Bull queue:', JSON.stringify(err, null, 2));
-}
-
+// ------------------ Meta Conversions API ------------------
 const META_PIXEL_ID = process.env.META_PIXEL_ID;
 const META_CAPI_TOKEN = process.env.META_CAPI_TOKEN;
 
@@ -66,6 +56,8 @@ async function sendMetaConversionEvent({ eventName, email }) {
     console.error('❌ Meta CAPI error:', err.response?.data || err.message);
   }
 }
+
+// ------------------ ROUTES ------------------
 
 app.get('/', (req, res) => {
   res.json({
@@ -171,7 +163,7 @@ app.post('/api/send-confirmation', async (req, res) => {
 
     const emailParams = new EmailParams({
       from: {
-        email: 'no-reply@wavespoole.com', // Ensure verified in MailerSend
+        email: 'no-reply@wavespoole.com', // Replace with your verified MailerSend sender
         name: 'Your Car Wash',
       },
       to: [new Recipient(booking.customerEmail, booking.customerName)],
@@ -211,53 +203,43 @@ app.post('/api/send-confirmation', async (req, res) => {
     });
 
     await mailerSend.email.send(emailParams);
-    console.log('✅ Confirmation email sent successfully');
+    console.log('Confirmation email sent successfully');
 
     // Schedule reminder email using Bull
-    console.log('Calculating reminder time for booking:', {
-      date: booking.date,
-      time: booking.time,
-    });
     const bookingTime = new Date(`${booking.date}T${booking.time}`);
-    console.log('Booking time:', bookingTime.toISOString());
-    const reminderTime = new Date(bookingTime.getTime() - 1 * 60 * 1000); // 1 minute for testing
+    const reminderTime = new Date(bookingTime.getTime() - 24 * 60 * 60 * 1000); // 1 minute for testing
     const timeUntilReminder = reminderTime - Date.now();
-    console.log('Reminder time:', reminderTime.toISOString(), 'Time until reminder:', timeUntilReminder);
 
     if (timeUntilReminder > 0) {
-      try {
-        const job = await reminderQueue.add(
-          {
-            booking: {
-              customerEmail: booking.customerEmail,
-              customerName: booking.customerName,
-              vehicleMake: booking.vehicleMake,
-              vehicleModel: booking.vehicleModel,
-              packageName: booking.packageName,
-              extras: booking.extras,
-              date: booking.date,
-              time: booking.time,
-              estimatedTime: booking.estimatedTime,
-            },
+      const job = await reminderQueue.add(
+        {
+          booking: {
+            customerEmail: booking.customerEmail,
+            customerName: booking.customerName,
+            vehicleMake: booking.vehicleMake,
+            vehicleModel: booking.vehicleModel,
+            packageName: booking.packageName,
+            extras: booking.extras,
+            date: booking.date,
+            time: booking.time,
+            estimatedTime: booking.estimatedTime,
           },
-          {
-            delay: timeUntilReminder, // Delay in milliseconds
-            attempts: 3, // Retry up to 3 times if it fails
-            backoff: {
-              type: 'exponential',
-              delay: 1000, // Wait 1s, then 2s, then 4s, etc., between retries
-            },
-          }
-        );
-        console.log(`✅ Reminder scheduled for ${booking.customerEmail} at ${reminderTime.toISOString()}, job ID: ${job.id}`);
-      } catch (err) {
-        console.error('❌ Failed to schedule reminder:', JSON.stringify(err, null, 2));
-      }
+        },
+        {
+          delay: timeUntilReminder, // Delay in milliseconds
+          attempts: 3, // Retry up to 3 times if it fails
+          backoff: {
+            type: 'exponential',
+            delay: 1000, // Wait 1s, then 2s, then 4s, etc., between retries
+          },
+        }
+      );
+      console.log(`✅ Reminder scheduled for ${booking.customerEmail} at ${reminderTime}, job ID: ${job.id}`);
     } else {
-      console.warn(`⚠️ Booking is too soon or already passed. Skipping reminder. Time until reminder: ${timeUntilReminder}`);
+      console.warn(`⚠️ Booking is too soon or already passed. Skipping reminder.`);
     }
 
-    // Fire Meta Conversion API event
+    // ✅ Fire Meta Conversion API event
     await sendMetaConversionEvent({
       eventName: 'Purchase',
       email: booking.customerEmail,
@@ -301,5 +283,7 @@ app.post('/api/refund', async (req, res) => {
   }
 });
 
-const port = process.env.PORT || 5001;
-app.listen(port, () => console.log(`✅ Backend running on port ${port}`));
+// ------------------ START SERVER ------------------
+
+const port = 5001;
+app.listen(port, () => console.log(`✅ Backend running at http://localhost:${port}`));
