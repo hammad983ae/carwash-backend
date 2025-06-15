@@ -156,7 +156,6 @@ app.post('/api/send-confirmation', async (req, res) => {
   try {
     console.log('MailerSend API Key:', process.env.MAILERSEND_API_KEY ? 'Loaded' : 'Missing');
     console.log('Attempting to send confirmation email to:', booking.customerEmail);
-    try {
       // 1. Send confirmation email
       await mailerSend.email.send(emailParams);
       console.log('Confirmation email sent successfully');
