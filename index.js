@@ -156,6 +156,56 @@ app.post('/api/send-confirmation', async (req, res) => {
   try {
     console.log('MailerSend API Key:', process.env.MAILERSEND_API_KEY ? 'Loaded' : 'Missing');
     console.log('Attempting to send confirmation email to:', booking.customerEmail);
+    try {
+      // 1. Send confirmation email
+      await mailerSend.email.send(emailParams);
+      console.log('Confirmation email sent successfully');
+    
+      // 2. Respond to client immediately — don't wait for Bull or Meta
+      res.status(200).json({ success: true });
+    
+      // 3. Non-blocking stuff AFTER response
+      setImmediate(async () => {
+        try {
+          // Schedule reminder email
+          const bookingTime = new Date(`${booking.date}T${booking.time}`);
+          const reminderTime = new Date(bookingTime.getTime() - 1 * 60 * 1000);
+          const timeUntilReminder = reminderTime - Date.now();
+    
+          if (timeUntilReminder > 0) {
+            const job = await reminderQueue.add({ booking }, {
+              delay: timeUntilReminder,
+              attempts: 3,
+              backoff: { type: 'exponential', delay: 1000 },
+            });
+            console.log(`✅ Reminder scheduled for ${booking.customerEmail}, job ID: ${job.id}`);
+          } else {
+            console.warn(`⚠️ Booking is too soon or already passed. Skipping reminder.`);
+          }
+    
+          // Meta CAPI call
+          await sendMetaConversionEvent({
+            eventName: 'Purchase',
+            email: booking.customerEmail,
+          });
+    
+        } catch (bgErr) {
+          console.error('❌ Background task error:', {
+            message: bgErr.message,
+            response: bgErr.response?.data,
+          });
+        }
+      });
+    
+    } catch (err) {
+      console.error('❌ Confirmation email error:', {
+        message: err.message,
+        stack: err.stack,
+        response: err.response?.data,
+      });
+      res.status(500).json({ error: 'Failed to send confirmation email' });
+    }
+    
 
     const emailParams = new EmailParams({
       from: {
