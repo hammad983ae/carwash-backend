@@ -316,4 +316,5 @@ app.post('/api/refund', async (req, res) => {
 });
 
 const port = process.env.PORT || 8080;
-app.listen(port, () => console.log(`✅ Backend running on port ${port}`));
+const host = '0.0.0.0'; // Bind to all interfaces
+app.listen(port, host, () => console.log(`✅ Backend running on http://${host}:${port}`));
