@@ -21,6 +21,24 @@ const reminderQueue = new Queue('reminder-emails', {
   },
 });
 
+reminderQueue.on('waiting', (jobId) => {
+  console.log(`⏳ Job waiting: ${jobId}`);
+});
+
+reminderQueue.on('active', (job) => {
+  console.log(`🚀 Job is being processed: ${job.id}`);
+});
+
+reminderQueue.on('completed', (job) => {
+  console.log(`✅ Job completed: ${job.id}`);
+});
+
+reminderQueue.on('failed', (job, err) => {
+  console.error(`❌ Job failed: ${job.id}`, err.message || err);
+});
+
+
+
 // ------------------ Meta Conversions API ------------------
 const META_PIXEL_ID = process.env.META_PIXEL_ID;
 const META_CAPI_TOKEN = process.env.META_CAPI_TOKEN;
