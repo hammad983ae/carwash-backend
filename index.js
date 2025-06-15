@@ -12,24 +12,27 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-console.log('Initializing Bull queue with Redis:', {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: process.env.REDIS_PORT || 6379,
-  password: process.env.REDIS_PASSWORD ? 'Set' : 'Not set',
-});
-
-let reminderQueue;
-try {
-  reminderQueue = new Queue('reminder-emails', {
-    redis: {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: process.env.REDIS_PORT || 6379,
-      password: process.env.REDIS_PASSWORD || undefined,
-    },
+let reminderQueue = null;
+if (process.env.REDIS_HOST && process.env.REDIS_PORT) {
+  console.log('Initializing Bull queue with Redis:', {
+    host: process.env.REDIS_HOST,
+    port: process.env.REDIS_PORT,
+    password: process.env.REDIS_PASSWORD ? 'Set' : 'Not set',
   });
-  console.log('✅ Bull queue initialized successfully');
-} catch (err) {
-  console.error('❌ Failed to initialize Bull queue:', JSON.stringify(err, null, 2));
+  try {
+    reminderQueue = new Queue('reminder-emails', {
+      redis: {
+        host: process.env.REDIS_HOST,
+        port: parseInt(process.env.REDIS_PORT, 10),
+        password: process.env.REDIS_PASSWORD || undefined,
+      },
+    });
+    console.log('✅ Bull queue initialized successfully');
+  } catch (err) {
+    console.error('❌ Failed to initialize Bull queue, reminders disabled:', JSON.stringify(err, null, 2));
+  }
+} else {
+  console.warn('⚠️ Redis variables missing, reminders disabled');
 }
 
 const META_PIXEL_ID = process.env.META_PIXEL_ID;
@@ -213,51 +216,53 @@ app.post('/api/send-confirmation', async (req, res) => {
     await mailerSend.email.send(emailParams);
     console.log('✅ Confirmation email sent successfully');
 
-    // Schedule reminder email using Bull
-    console.log('Calculating reminder time for booking:', {
-      date: booking.date,
-      time: booking.time,
-    });
-    const bookingTime = new Date(`${booking.date}T${booking.time}`);
-    console.log('Booking time:', bookingTime.toISOString());
-    const reminderTime = new Date(bookingTime.getTime() - 1 * 60 * 1000); // 1 minute for testing
-    const timeUntilReminder = reminderTime - Date.now();
-    console.log('Reminder time:', reminderTime.toISOString(), 'Time until reminder:', timeUntilReminder);
+    if (reminderQueue) {
+      console.log('Calculating reminder time for booking:', {
+        date: booking.date,
+        time: booking.time,
+      });
+      const bookingTime = new Date(`${booking.date}T${booking.time}`);
+      console.log('Booking time:', bookingTime.toISOString());
+      const reminderTime = new Date(bookingTime.getTime() - 1 * 60 * 1000); // 1 minute for testing
+      const timeUntilReminder = reminderTime - Date.now();
+      console.log('Reminder time:', reminderTime.toISOString(), 'Time until reminder:', timeUntilReminder);
 
-    if (timeUntilReminder > 0) {
-      try {
-        const job = await reminderQueue.add(
-          {
-            booking: {
-              customerEmail: booking.customerEmail,
-              customerName: booking.customerName,
-              vehicleMake: booking.vehicleMake,
-              vehicleModel: booking.vehicleModel,
-              packageName: booking.packageName,
-              extras: booking.extras,
-              date: booking.date,
-              time: booking.time,
-              estimatedTime: booking.estimatedTime,
+      if (timeUntilReminder > 0) {
+        try {
+          const job = await reminderQueue.add(
+            {
+              booking: {
+                customerEmail: booking.customerEmail,
+                customerName: booking.customerName,
+                vehicleMake: booking.vehicleMake,
+                vehicleModel: booking.vehicleModel,
+                packageName: booking.packageName,
+                extras: booking.extras,
+                date: booking.date,
+                time: booking.time,
+                estimatedTime: booking.estimatedTime,
+              },
             },
-          },
-          {
-            delay: timeUntilReminder, // Delay in milliseconds
-            attempts: 3, // Retry up to 3 times if it fails
-            backoff: {
-              type: 'exponential',
-              delay: 1000, // Wait 1s, then 2s, then 4s, etc., between retries
-            },
-          }
-        );
-        console.log(`✅ Reminder scheduled for ${booking.customerEmail} at ${reminderTime.toISOString()}, job ID: ${job.id}`);
-      } catch (err) {
-        console.error('❌ Failed to schedule reminder:', JSON.stringify(err, null, 2));
+            {
+              delay: timeUntilReminder,
+              attempts: 3,
+              backoff: {
+                type: 'exponential',
+                delay: 1000,
+              },
+            }
+          );
+          console.log(`✅ Reminder scheduled for ${booking.customerEmail} at ${reminderTime.toISOString()}, job ID: ${job.id}`);
+        } catch (err) {
+          console.error('❌ Failed to schedule reminder:', JSON.stringify(err, null, 2));
+        }
+      } else {
+        console.warn(`⚠️ Booking is too soon or already passed. Skipping reminder. Time until reminder: ${timeUntilReminder}`);
       }
     } else {
-      console.warn(`⚠️ Booking is too soon or already passed. Skipping reminder. Time until reminder: ${timeUntilReminder}`);
+      console.warn('⚠️ Reminder queue not initialized, skipping reminder');
     }
 
-    // Fire Meta Conversion API event
     await sendMetaConversionEvent({
       eventName: 'Purchase',
       email: booking.customerEmail,
