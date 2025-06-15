@@ -75,7 +75,16 @@ app.get('/', (req, res) => {
     message: 'Vehicle API Server',
     endpoints: {
       'GET /api/vehicle?vrm=<registration>': 'Get vehicle dimensions and classify by size',
+      'GET /api/health': 'Check server and queue status',
     },
+  });
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    redisConnected: !!reminderQueue,
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -306,5 +315,5 @@ app.post('/api/refund', async (req, res) => {
   }
 });
 
-const port = process.env.PORT || 5001;
+const port = process.env.PORT || 8080;
 app.listen(port, () => console.log(`✅ Backend running on port ${port}`));
