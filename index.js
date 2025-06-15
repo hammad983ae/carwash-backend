@@ -12,28 +12,13 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-let reminderQueue = null;
-if (process.env.REDIS_HOST && process.env.REDIS_PORT) {
-  console.log('Initializing Bull queue with Redis:', {
-    host: process.env.REDIS_HOST,
-    port: process.env.REDIS_PORT,
-    password: process.env.REDIS_PASSWORD ? 'Set' : 'Not set',
-  });
-  try {
-    reminderQueue = new Queue('reminder-emails', {
-      redis: {
-        host: process.env.REDIS_HOST,
-        port: parseInt(process.env.REDIS_PORT, 10),
-        password: process.env.REDIS_PASSWORD || undefined,
-      },
-    });
-    console.log('✅ Bull queue initialized successfully');
-  } catch (err) {
-    console.error('❌ Failed to initialize Bull queue, reminders disabled:', JSON.stringify(err, null, 2));
-  }
-} else {
-  console.warn('⚠️ Redis variables missing, reminders disabled');
-}
+const reminderQueue = new Queue('reminder-emails', {
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: process.env.REDIS_PORT || 6379,
+    password: process.env.REDIS_PASSWORD || undefined,
+  },
+});
 
 const META_PIXEL_ID = process.env.META_PIXEL_ID;
 const META_CAPI_TOKEN = process.env.META_CAPI_TOKEN;
@@ -75,16 +60,7 @@ app.get('/', (req, res) => {
     message: 'Vehicle API Server',
     endpoints: {
       'GET /api/vehicle?vrm=<registration>': 'Get vehicle dimensions and classify by size',
-      'GET /api/health': 'Check server and queue status',
     },
-  });
-});
-
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    redisConnected: !!reminderQueue,
-    timestamp: new Date().toISOString(),
   });
 });
 
@@ -223,55 +199,43 @@ app.post('/api/send-confirmation', async (req, res) => {
     });
 
     await mailerSend.email.send(emailParams);
-    console.log('✅ Confirmation email sent successfully');
+    console.log('Confirmation email sent successfully');
 
-    if (reminderQueue) {
-      console.log('Calculating reminder time for booking:', {
-        date: booking.date,
-        time: booking.time,
-      });
-      const bookingTime = new Date(`${booking.date}T${booking.time}`);
-      console.log('Booking time:', bookingTime.toISOString());
-      const reminderTime = new Date(bookingTime.getTime() - 1 * 60 * 1000); // 1 minute for testing
-      const timeUntilReminder = reminderTime - Date.now();
-      console.log('Reminder time:', reminderTime.toISOString(), 'Time until reminder:', timeUntilReminder);
+    // Schedule reminder email using Bull
+    const bookingTime = new Date(`${booking.date}T${booking.time}`);
+    const reminderTime = new Date(bookingTime.getTime() - 1 * 60 * 1000); // 1 minute for testing
+    const timeUntilReminder = reminderTime - Date.now();
 
-      if (timeUntilReminder > 0) {
-        try {
-          const job = await reminderQueue.add(
-            {
-              booking: {
-                customerEmail: booking.customerEmail,
-                customerName: booking.customerName,
-                vehicleMake: booking.vehicleMake,
-                vehicleModel: booking.vehicleModel,
-                packageName: booking.packageName,
-                extras: booking.extras,
-                date: booking.date,
-                time: booking.time,
-                estimatedTime: booking.estimatedTime,
-              },
-            },
-            {
-              delay: timeUntilReminder,
-              attempts: 3,
-              backoff: {
-                type: 'exponential',
-                delay: 1000,
-              },
-            }
-          );
-          console.log(`✅ Reminder scheduled for ${booking.customerEmail} at ${reminderTime.toISOString()}, job ID: ${job.id}`);
-        } catch (err) {
-          console.error('❌ Failed to schedule reminder:', JSON.stringify(err, null, 2));
+    if (timeUntilReminder > 0) {
+      const job = await reminderQueue.add(
+        {
+          booking: {
+            customerEmail: booking.customerEmail,
+            customerName: booking.customerName,
+            vehicleMake: booking.vehicleMake,
+            vehicleModel: booking.vehicleModel,
+            packageName: booking.packageName,
+            extras: booking.extras,
+            date: booking.date,
+            time: booking.time,
+            estimatedTime: booking.estimatedTime,
+          },
+        },
+        {
+          delay: timeUntilReminder, // Delay in milliseconds
+          attempts: 3, // Retry up to 3 times if it fails
+          backoff: {
+            type: 'exponential',
+            delay: 1000, // Wait 1s, then 2s, then 4s, etc., between retries
+          },
         }
-      } else {
-        console.warn(`⚠️ Booking is too soon or already passed. Skipping reminder. Time until reminder: ${timeUntilReminder}`);
-      }
+      );
+      console.log(`✅ Reminder scheduled for ${booking.customerEmail} at ${reminderTime}, job ID: ${job.id}`);
     } else {
-      console.warn('⚠️ Reminder queue not initialized, skipping reminder');
+      console.warn(`⚠️ Booking is too soon or already passed. Skipping reminder.`);
     }
 
+    // ✅ Fire Meta Conversion API event
     await sendMetaConversionEvent({
       eventName: 'Purchase',
       email: booking.customerEmail,
@@ -315,6 +279,5 @@ app.post('/api/refund', async (req, res) => {
   }
 });
 
-const port = process.env.PORT || 8080;
-const host = '0.0.0.0'; // Bind to all interfaces
-app.listen(port, host, () => console.log(`✅ Backend running on http://${host}:${port}`));
+const port = process.env.PORT || 5001;
+app.listen(port, () => console.log(`✅ Backend running on port ${port}`));
