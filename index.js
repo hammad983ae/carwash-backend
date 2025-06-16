@@ -65,6 +65,9 @@ async function sendMetaConversionEvent({ eventName, email }) {
             user_data: {
               em: [hashEmail(email)],
             },
+            custom_data: {
+              currency: 'GBP',
+            },
           },
         ],
       }
