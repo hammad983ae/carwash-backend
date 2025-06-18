@@ -47,6 +47,10 @@ async function sendMetaConversionEvent({ eventName, email }) {
             user_data: {
               em: [hashEmail(email)],
             },
+            custom_data: {
+              value: value || 0, // Default to 0 if not provided
+              currency: 'GBP',
+            },
           },
         ],
       }
@@ -161,6 +165,9 @@ app.post('/api/send-confirmation', async (req, res) => {
     console.log('MailerSend API Key:', process.env.MAILERSEND_API_KEY ? 'Loaded' : 'Missing');
     console.log('Attempting to send confirmation email to:', booking.customerEmail);
 
+    const paymentIntent = await stripe.paymentIntents.retrieve(booking.paymentIntentId);
+    const amount = paymentIntent.amount_received / 100; // Convert from pence to GBP
+
     const emailParams = new EmailParams({
       from: {
         email: 'no-reply@wavespoole.com', // Replace with your verified MailerSend sender
@@ -240,9 +247,10 @@ app.post('/api/send-confirmation', async (req, res) => {
     }
 
     // ✅ Fire Meta Conversion API event
-    await sendMetaConversionEvent({
+      await sendMetaConversionEvent({
       eventName: 'Purchase',
       email: booking.customerEmail,
+      value: amount,
     });
 
     res.status(200).json({ success: true });
