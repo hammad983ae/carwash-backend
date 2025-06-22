@@ -132,9 +132,9 @@ app.get('/api/vehicle', async (req, res) => {
       const volumeM3 = (LengthMm * WidthMm * HeightMm) / 1_000_000_000;
 
       let category;
-      if (volumeM3 < 9.7) category = 'Volume 1';
-      else if (volumeM3 <= 11.3) category = 'Volume 2';
-      else if (volumeM3 <= 13.7) category = 'Volume 3';
+      if (volumeM3 < 9.9) category = 'Volume 1';
+      else if (volumeM3 <= 11.7) category = 'Volume 2';
+      else if (volumeM3 <= 14.0) category = 'Volume 3';
       else category = 'Volume 4';
 
       return res.json({
